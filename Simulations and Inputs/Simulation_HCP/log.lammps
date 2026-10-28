@@ -1,0 +1,5 @@
+LAMMPS (10 Sep 2025)
+OMP_NUM_THREADS environment is not set. Defaulting to 1 thread.
+  using 1 OpenMP thread(s) per MPI task
+Loaded 1 plugins from C:\Users\ommka\AppData\Local\LAMMPS 64-bit 10Sep2025\plugins
+package gpu 1

@@ -1,0 +1,51 @@
+# ---------- Benchmark for pure Al (MEAM potential) ----------
+
+units           metal
+atom_style      atomic
+boundary        p p p
+
+# ---- USER SETTINGS ----
+variable element string Al
+variable struct  string fcc          # fcc for Al, hcp for Co, bcc for Fe
+variable alat    equal 3.8           # initial guess (Å)
+variable count   equal 5000            # number of lattice steps to test (+/- around guess)
+
+# ---- CREATE STRUCTURE ----
+lattice  ${struct} ${alat}
+region   box block 0 4 0 4 0 4
+create_box 1 box
+create_atoms 1 box
+
+# ---- PAIR STYLE & COEFFS ----
+plugin load meam
+pair_style meam
+pair_coeff * * library.meam Al Co Fe FeCoAl.meam Al   # After FeCoAl.meam file, Al, Fe and Co are replaced for corresponding benchmarking
+
+# ---- LOOP OVER LATTICE CONSTANTS TO FIND MINIMUM ENERGY ----
+variable a loop ${count}
+variable delta equal 0.02
+variable min_energy equal 1.0e9
+variable best_a equal ${alat}
+
+compute eng all pe/atom
+compute eatoms all reduce sum c_eng
+
+label loop_a
+variable new_a equal ${alat} + (${a}-${count}/2.0)*${delta}
+lattice ${struct} ${new_a}
+change_box all x scale ${new_a}/${alat} y scale ${new_a}/${alat} z scale ${new_a}/${alat} remap
+minimize 1e-10 1e-10 1000 10000
+compute E equal c_eatoms
+
+# Save if lowest energy
+if "${E} < ${min_energy}" then "variable min_energy equal ${E}; variable best_a equal ${new_a}"
+next a
+jump SELF loop_a
+
+# ---- PRINT RESULTS ----
+print "-------------------------------------"
+print "Benchmark result for ${element}"
+print "Structure: ${struct}"
+print "Equilibrium lattice constant (Å): ${best_a}"
+print "Cohesive energy (eV/atom): ${min_energy}"
+print "-------------------------------------"

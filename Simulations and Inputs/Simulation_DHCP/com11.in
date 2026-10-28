@@ -1,0 +1,124 @@
+newton on
+package gpu 1 neigh yes split 1.0
+suffix gpu
+
+# ---------- Define Temperature List ----------
+variable tlist index 200 400 650
+
+# ---------- Temperature Loop ----------
+label loop_start
+variable T equal ${tlist}
+variable seed equal 041125 + ${T}
+
+# ---------- Initialization ----------
+clear
+units           metal
+dimension       3
+boundary        p p p
+atom_style      atomic
+
+# ---------- Reference Parameters for DHCP ----------
+variable a0 equal 2.51              # Reference lattice constant at 300K (from Co HCP)
+variable c_a equal 3.24             # DHCP c/a ratio (double of HCP = 2 × 1.62)
+variable alpha equal 10.9e-6        # Linear thermal expansion coefficient (1/K)
+
+# ---------- Temperature-Dependent Lattice Constants ----------
+variable a equal ${a0}*(1.0 + ${alpha}*(${T}-300.0))
+variable c equal ${a}*${c_a}
+
+print "==============================================================="
+print " Running DHCP simulation at T = ${T} K"
+print "==============================================================="
+
+# ---------- System Setup: DHCP with ABAC Stacking in Cubic Box ----------
+# DHCP has 4 atoms per unit cell (ABAC stacking)
+# Using orthogonal box orientation for cubic/cuboidal structure
+
+variable sqrt3 equal sqrt(3.0)
+
+# DHCP custom lattice with 4-atom basis in ORTHOGONAL box
+# Lattice vectors aligned to cartesian axes:
+#   a1 = (a, 0, 0)           - along x
+#   a2 = (0, a*√3, 0)        - along y (rectangular, not tilted)
+#   a3 = (0, 0, c)           - along z
+# This creates an orthogonal (cuboidal) box
+
+lattice custom ${a} &
+        a1 1.0 0.0 0.0 &
+        a2 0.0 ${sqrt3} 0.0 &
+        a3 0.0 0.0 ${c_a} &
+        basis 0.0 0.0 0.0 &
+        basis 0.666666667 0.333333333 0.25 &
+        basis 0.0 0.0 0.5 &
+        basis 0.333333333 0.666666667 0.75
+
+region box block 0 7 0 7 0 5 units lattice
+create_box 3 box
+create_atoms 1 region box
+
+# ---------- Mass Definition ----------
+mass 1 26.98    # Al
+mass 2 58.93    # Co
+mass 3 55.85    # Fe
+
+set type 1 type/fraction 2 0.25 ${seed}
+set type 1 type/fraction 3 0.25 041126
+
+# ---------- Interatomic Potential ----------
+pair_style      meam
+pair_coeff      * * library.meam Al Co Fe AlCoFe.meam Al Co Fe
+
+neighbor        2.0 bin
+neigh_modify    delay 10
+
+# ---------- Computations ----------
+compute         eng all pe/atom
+compute         eatoms all reduce sum c_eng
+
+thermo          1000
+thermo_style    custom step temp press pe etotal c_eatoms lx ly lz
+thermo_modify   flush yes
+
+# ---------- NPT Equilibration ----------
+velocity        all create ${T} ${seed} dist gaussian
+
+# Use aniso for orthogonal box (not tri which is for triclinic)
+fix             1 all npt temp ${T} ${T} 0.1 aniso 0.0 0.0 1.0
+
+dump            1 all cfg 5000 dhcp_${T}_*.cfg mass type xs ys zs c_eng
+dump_modify     1 element Al Co Fe sort id
+
+timestep        0.001
+run             30000
+
+unfix           1
+
+# ---------- Compute Equilibrium Lattice Constants ----------
+# For DHCP in orthogonal box: a = lx/nx, c = lz/nz
+variable        a_eq equal lx/7
+variable        c_eq equal lz/5
+variable        c_a_eq equal ${c_eq}/${a_eq}
+
+# ---------- Output Energy and Properties ----------
+variable        E equal c_eatoms
+variable        N equal count(all)
+variable        Ecoh equal ${E}/${N}
+
+print "---------------------------------------------------------------"
+print " Equilibrium lattice constants at T = ${T} K:"
+print " a_eq = ${a_eq} Å"
+print " c_eq = ${c_eq} Å"
+print " c/a ratio = ${c_a_eq}"
+print " Cohesive Energy (eV/atom) = ${Ecoh}"
+print "---------------------------------------------------------------"
+
+# Write equilibrated data file
+write_data      dhcp_${T}.data
+
+clear
+next            tlist
+jump            SELF loop_start
+
+print "==============================================================="
+print " All DHCP simulations completed successfully!"
+print "==============================================================="
